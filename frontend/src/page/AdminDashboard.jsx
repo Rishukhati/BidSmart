@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { adminAPI, tenderAPI, bidAPI } from '../services/api';
 
 const Toggle = ({ defaultOn = false, onChange }) => {
   const [isOn, setIsOn] = useState(defaultOn);
@@ -14,6 +15,34 @@ const Toggle = ({ defaultOn = false, onChange }) => {
 
 export default function AdminDashboard({ onLogout }) {
   const [activePage, setActivePage] = useState('overview');
+  
+  const [stats, setStats] = useState({});
+  const [allTenders, setAllTenders] = useState([]);
+  const [bidsForTender, setBidsForTender] = useState([]);
+  const [allVendors, setAllVendors] = useState([]);
+  const [tenderForm, setTenderForm] = useState({ title: '', description: '', category: '', location: '', budget: '', startDate: '', deadline: '' });
+
+  useEffect(() => {
+    const loadAdmin = async () => {
+      try {
+        const [statsRes, tendersRes, vendorsRes] = await Promise.all([
+          adminAPI.getStats(),
+          tenderAPI.getAll(),
+          adminAPI.getUsers()
+        ]);
+        setStats(statsRes.data.data);
+        setAllTenders(tendersRes.data.data);
+        setAllVendors(vendorsRes.data.data);
+      } catch (err) { console.error(err); }
+    };
+    loadAdmin();
+  }, []);
+
+  useEffect(() => {
+    if (activePage === 'bids' && allTenders.length > 0) {
+      bidAPI.getByTender(allTenders[0]._id).then(res => setBidsForTender(res.data.data)).catch(console.error);
+    }
+  }, [activePage, allTenders]);
 
   const pages = {
     overview:  { title: 'Overview',     crumb: 'Dashboard' },
@@ -117,32 +146,32 @@ export default function AdminDashboard({ onLogout }) {
                     <div className="text-[12px] text-[#8896B3] font-medium uppercase tracking-wide">Total Tenders</div>
                     <div className="w-9 h-9 rounded-lg bg-[#1A6BFF]/10 flex items-center justify-center text-[17px]">📋</div>
                   </div>
-                  <div className="font-['Syne'] text-[28px] font-extrabold tracking-tight leading-none">142</div>
-                  <div className="text-[12px] mt-1.5 text-[#1D9E75]">↑ 12 this month</div>
+                  <div className="font-['Syne'] text-[28px] font-extrabold tracking-tight leading-none">{stats.totalTenders || 0}</div>
+                  <div className="text-[12px] mt-1.5 text-[#1D9E75]">Live</div>
                 </div>
                 <div className="bg-[#0F1729] border border-white/10 rounded-xl p-5 hover:border-white/20 transition-colors">
                   <div className="flex items-center justify-between mb-3.5">
                     <div className="text-[12px] text-[#8896B3] font-medium uppercase tracking-wide">Active Tenders</div>
                     <div className="w-9 h-9 rounded-lg bg-[#1D9E75]/10 flex items-center justify-center text-[17px]">✅</div>
                   </div>
-                  <div className="font-['Syne'] text-[28px] font-extrabold tracking-tight leading-none">38</div>
-                  <div className="text-[12px] mt-1.5 text-[#1D9E75]">↑ 5 since last week</div>
+                  <div className="font-['Syne'] text-[28px] font-extrabold tracking-tight leading-none">{stats.activeTenders || 0}</div>
+                  <div className="text-[12px] mt-1.5 text-[#1D9E75]">Live</div>
                 </div>
                 <div className="bg-[#0F1729] border border-white/10 rounded-xl p-5 hover:border-white/20 transition-colors">
                   <div className="flex items-center justify-between mb-3.5">
                     <div className="text-[12px] text-[#8896B3] font-medium uppercase tracking-wide">Bids Received</div>
                     <div className="w-9 h-9 rounded-lg bg-[#F5A623]/10 flex items-center justify-center text-[17px]">📥</div>
                   </div>
-                  <div className="font-['Syne'] text-[28px] font-extrabold tracking-tight leading-none">614</div>
-                  <div className="text-[12px] mt-1.5 text-[#1D9E75]">↑ 48 new bids</div>
+                  <div className="font-['Syne'] text-[28px] font-extrabold tracking-tight leading-none">{stats.totalBids || 0}</div>
+                  <div className="text-[12px] mt-1.5 text-[#1D9E75]">Live</div>
                 </div>
                 <div className="bg-[#0F1729] border border-white/10 rounded-xl p-5 hover:border-white/20 transition-colors">
                   <div className="flex items-center justify-between mb-3.5">
                     <div className="text-[12px] text-[#8896B3] font-medium uppercase tracking-wide">Registered Vendors</div>
                     <div className="w-9 h-9 rounded-lg bg-[#F5A623]/10 flex items-center justify-center text-[17px]">🏢</div>
                   </div>
-                  <div className="font-['Syne'] text-[28px] font-extrabold tracking-tight leading-none">4,218</div>
-                  <div className="text-[12px] mt-1.5 text-[#1D9E75]">↑ 103 this month</div>
+                  <div className="font-['Syne'] text-[28px] font-extrabold tracking-tight leading-none">{stats.totalVendors || 0}</div>
+                  <div className="text-[12px] mt-1.5 text-[#1D9E75]">Live</div>
                 </div>
               </div>
 
@@ -209,83 +238,63 @@ export default function AdminDashboard({ onLogout }) {
           {activePage === 'post' && (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-[860px]">
               
-              <div className="mb-6">
-                <div className="font-['Syne'] text-[14px] font-bold text-white mb-4 pb-2.5 border-b border-white/10 flex items-center gap-2">
-                  <span className="text-[16px]">📋</span> Basic Information
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1.5 col-span-2">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Tender Title *</label>
-                    <input type="text" className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors placeholder-white/40" placeholder="e.g. Construction of Road from Gomti Nagar to Hazratganj — Phase 2" />
+              <div className="grid grid-cols-2 gap-5 mb-5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide mb-2">Tender Title*</label>
+                    <input type="text" value={tenderForm.title} onChange={e => setTenderForm({...tenderForm, title: e.target.value})} placeholder="e.g. Road Construction NH-24" className="w-full bg-[#0A0F1E] border border-white/10 rounded-xl py-3 px-4 text-[13px] text-white focus:border-[#1A6BFF] focus:outline-none transition-colors" />
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Reference Number *</label>
-                    <input type="text" className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors placeholder-white/40" placeholder="e.g. UP/PWD/2026/0412" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Department *</label>
-                    <select className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors cursor-pointer appearance-none">
-                      <option value="" className="bg-[#0F1729] text-white">Select Department</option>
-                      <option className="bg-[#0F1729] text-white">Public Works Department (PWD)</option>
-                      <option className="bg-[#0F1729] text-white">Municipal Corporation</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Category *</label>
-                    <select className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors cursor-pointer appearance-none">
-                      <option value="" className="bg-[#0F1729] text-white">Select Category</option>
-                      <option className="bg-[#0F1729] text-white">Infrastructure / Construction</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Location / District *</label>
-                    <input type="text" className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors placeholder-white/40" placeholder="e.g. Lucknow, Uttar Pradesh" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-6">
-                <div className="font-['Syne'] text-[14px] font-bold text-white mb-4 pb-2.5 border-b border-white/10 flex items-center gap-2">
-                  <span className="text-[16px]">📝</span> Tender Description
-                </div>
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Scope of Work *</label>
-                    <textarea className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors placeholder-white/40 min-h-[120px] resize-y" placeholder="Describe the complete scope of work..."></textarea>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-6">
-                <div className="font-['Syne'] text-[14px] font-bold text-white mb-4 pb-2.5 border-b border-white/10 flex items-center gap-2">
-                  <span className="text-[16px]">📅</span> Dates & Deadlines
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Publish Date *</label>
-                    <input type="date" className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Submission Deadline *</label>
-                    <input type="date" className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[12px] font-medium text-[#8896B3] uppercase tracking-wide">Status</label>
-                    <select className="bg-white/5 border border-white/10 rounded-lg py-2.5 px-3.5 text-white text-[14px] focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-colors cursor-pointer appearance-none">
-                      <option value="draft" className="bg-[#0F1729] text-white">Save as Draft</option>
-                      <option value="active" className="bg-[#0F1729] text-white">Publish as Active</option>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide mb-2">Category*</label>
+                    <select value={tenderForm.category} onChange={e => setTenderForm({...tenderForm, category: e.target.value})} className="w-full bg-[#0A0F1E] border border-white/10 rounded-xl py-3 px-4 text-[13px] text-white focus:border-[#1A6BFF] focus:outline-none transition-colors appearance-none">
+                      <option>Infrastructure</option>
+                      <option>Civil Works</option>
+                      <option>IT & Electronics</option>
                     </select>
                   </div>
                 </div>
-              </div>
+                <div className="mb-5">
+                  <label className="block text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide mb-2">Description</label>
+                  <textarea rows="3" value={tenderForm.description} onChange={e => setTenderForm({...tenderForm, description: e.target.value})} placeholder="Provide detailed requirements..." className="w-full bg-[#0A0F1E] border border-white/10 rounded-xl py-3 px-4 text-[13px] text-white focus:border-[#1A6BFF] focus:outline-none transition-colors"></textarea>
+                </div>
+                <div className="grid grid-cols-3 gap-5 mb-5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide mb-2">Est. Budget (₹)*</label>
+                    <input type="number" value={tenderForm.budget} onChange={e => setTenderForm({...tenderForm, budget: e.target.value})} placeholder="20000000" className="w-full bg-[#0A0F1E] border border-white/10 rounded-xl py-3 px-4 text-[13px] text-white focus:border-[#1A6BFF] focus:outline-none transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide mb-2">Start Date*</label>
+                    <input type="date" value={tenderForm.startDate} onChange={e => setTenderForm({...tenderForm, startDate: e.target.value})} className="w-full bg-[#0A0F1E] border border-white/10 rounded-xl py-3 px-4 text-[13px] text-white focus:border-[#1A6BFF] focus:outline-none transition-colors [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide mb-2">Deadline*</label>
+                    <input type="date" value={tenderForm.deadline} onChange={e => setTenderForm({...tenderForm, deadline: e.target.value})} className="w-full bg-[#0A0F1E] border border-white/10 rounded-xl py-3 px-4 text-[13px] text-white focus:border-[#1A6BFF] focus:outline-none transition-colors [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide mb-2">Location/State*</label>
+                  <input type="text" value={tenderForm.location} onChange={e => setTenderForm({...tenderForm, location: e.target.value})} placeholder="e.g. Uttar Pradesh" className="w-full bg-[#0A0F1E] border border-white/10 rounded-xl py-3 px-4 text-[13px] text-white focus:border-[#1A6BFF] focus:outline-none transition-colors" />
+                </div>
 
-              <div className="flex justify-end gap-3 mt-6 pt-5 border-t border-white/10">
-                <button className="py-2.5 px-7 bg-[#151E35] border border-white/10 hover:bg-white/5 text-[#8896B3] hover:text-white rounded-lg text-[14px] font-medium transition-colors">
-                  💾 Save as Draft
-                </button>
-                <button onClick={() => {alert('Tender published!'); setActivePage('overview');}} className="py-2.5 px-7 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-lg text-[14px] font-medium transition-all transform hover:-translate-y-0.5 flex items-center gap-2">
-                  🚀 Publish Tender
-                </button>
+              <div className="flex justify-end gap-3 mt-7 pt-5 border-t border-[rgba(255,255,255,0.07)]">
+                <button className="px-5 py-2.5 rounded-xl border border-white/10 text-[13px] font-medium hover:bg-white/5 transition-colors">Save Draft</button>
+                <button onClick={async () => {
+                  try {
+                    await tenderAPI.create({
+                      title: tenderForm.title,
+                      description: tenderForm.description,
+                      category: tenderForm.category,
+                      state: tenderForm.location,
+                      estimated_cost: tenderForm.budget,
+                      start_date: tenderForm.startDate,
+                      end_date: tenderForm.deadline,
+                      status: 'Active'
+                    });
+                    alert('Tender published!');
+                    setActivePage('tenders');
+                  } catch (err) {
+                    alert('Failed: ' + err.response?.data?.message);
+                  }
+                }} className="px-5 py-2.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-xl text-[13px] font-semibold transition-colors shadow-[0_0_15px_rgba(26,107,255,0.3)] hover:shadow-[0_0_20px_rgba(77,144,255,0.4)]">Publish Tender →</button>
               </div>
             </div>
           )}
@@ -318,22 +327,26 @@ export default function AdminDashboard({ onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="border-b border-white/10 hover:bg-white/5 transition-colors">
-                      <td className="py-3 px-4 text-[13px] text-white align-middle">
-                        <div className="font-medium">Road Construction — NH-24 Gomti Nagar</div>
-                        <div className="text-[#8896B3] text-[11px] mt-0.5">PWD · Lucknow</div>
-                      </td>
-                      <td className="py-3 px-4 text-[13px] text-[#8896B3] align-middle">UP/PWD/2026/0412</td>
-                      <td className="py-3 px-4 align-middle">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1D9E75]/10 text-[#4DDDB0] rounded-full text-[11px] font-semibold"><span className="w-1 h-1 rounded-full bg-[#4DDDB0]"></span>Active</span>
-                      </td>
-                      <td className="py-3 px-4 align-middle">
-                        <div className="flex gap-1.5">
-                          <button onClick={() => setActivePage('bids')} className="py-1 px-3 border border-[#1A6BFF] bg-[#1A6BFF]/10 text-[#4D90FF] rounded-md text-[12px] font-medium hover:bg-[#1A6BFF] hover:text-white transition-colors">Bids</button>
-                          <button className="py-1 px-3 border border-white/10 bg-transparent text-[#8896B3] rounded-md text-[12px] font-medium hover:bg-white/5 hover:text-white transition-colors">Edit</button>
-                        </div>
-                      </td>
-                    </tr>
+                    {allTenders.map((t, i) => (
+                      <tr key={i} className="border-b border-white/10 hover:bg-white/5 transition-colors">
+                        <td className="py-3 px-4 text-[13px] text-white align-middle">
+                          <div className="font-medium">{t.title}</div>
+                          <div className="text-[#8896B3] text-[11px] mt-0.5">{t.category} · {t.state}</div>
+                        </td>
+                        <td className="py-3 px-4 text-[13px] text-[#8896B3] align-middle">{t._id.substring(0,8)}</td>
+                        <td className="py-3 px-4 align-middle">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1D9E75]/10 text-[#4DDDB0] rounded-full text-[11px] font-semibold"><span className="w-1 h-1 rounded-full bg-[#4DDDB0]"></span>{t.status}</span>
+                        </td>
+                        <td className="py-3 px-4 align-middle">
+                          <div className="flex gap-1.5">
+                            <button onClick={() => {
+                               bidAPI.getByTender(t._id).then(res => setBidsForTender(res.data.data)).catch(console.error);
+                               setActivePage('bids');
+                            }} className="py-1 px-3 border border-[#1A6BFF] bg-[#1A6BFF]/10 text-[#4D90FF] rounded-md text-[12px] font-medium hover:bg-[#1A6BFF] hover:text-white transition-colors">Bids</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -344,30 +357,45 @@ export default function AdminDashboard({ onLogout }) {
           {activePage === 'bids' && (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
               <div className="flex gap-2.5 mb-4 flex-wrap items-center">
-                <select className="bg-white/5 border border-white/10 rounded-lg py-2 px-3.5 text-[13px] text-white cursor-pointer min-w-[260px] appearance-none">
-                  <option className="bg-[#0F1729]">Road Construction — NH-24 Gomti Nagar</option>
+                <select className="bg-white/5 border border-white/10 rounded-lg py-2 px-3.5 text-[13px] text-white cursor-pointer min-w-[260px] appearance-none" onChange={(e) => {
+                  bidAPI.getByTender(e.target.value).then(res => setBidsForTender(res.data.data)).catch(console.error);
+                }}>
+                  {allTenders.map((t, i) => (
+                    <option key={i} value={t._id} className="bg-[#0F1729]">{t.title}</option>
+                  ))}
                 </select>
-                <div className="ml-auto text-[13px] text-[#8896B3]">14 bids · ₹2.5 Cr estimated</div>
+                <div className="ml-auto text-[13px] text-[#8896B3]">{bidsForTender.length} bids</div>
               </div>
 
-              {[1, 2].map(i => (
+              {bidsForTender.map((b, i) => (
                 <div key={i} className="bg-[#0F1729] border border-white/10 rounded-xl p-5 mb-3 flex items-center gap-4 hover:border-white/20 transition-colors">
-                  <div className="w-10 h-10 rounded-lg bg-[#1A6BFF]/10 border border-[#1A6BFF]/20 flex items-center justify-center font-['Syne'] text-[14px] font-bold text-[#4D90FF] shrink-0">SC</div>
+                  <div className="w-10 h-10 rounded-lg bg-[#1A6BFF]/10 border border-[#1A6BFF]/20 flex items-center justify-center font-['Syne'] text-[14px] font-bold text-[#4D90FF] shrink-0">
+                    {b.vendor_id?.name ? b.vendor_id.name.substring(0,2).toUpperCase() : 'VN'}
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[14px] font-medium text-white">Sharma Constructions Pvt Ltd</div>
-                    <div className="text-[12px] text-[#8896B3] mt-0.5">GST: 09AAPCS1234F1Z5 · Lucknow · Submitted 22 Apr 2026, 10:42 AM</div>
+                    <div className="text-[14px] font-medium text-white">{b.vendor_id?.name || 'Unknown Vendor'}</div>
+                    <div className="text-[12px] text-[#8896B3] mt-0.5">GST: {b.vendor_id?.gst_number || 'N/A'} · Submitted {new Date(b.submitted_at).toLocaleString()}</div>
                     <div className="mt-2 flex gap-2 flex-wrap items-center">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1A6BFF]/10 text-[#4D90FF] rounded-full text-[11px] font-semibold"><span className="w-1 h-1 rounded-full bg-[#4D90FF]"></span>Under Review</span>
-                      <span className="text-[12px] text-[#4DDDB0]">★ AI Match Score: 92%</span>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1A6BFF]/10 text-[#4D90FF] rounded-full text-[11px] font-semibold"><span className="w-1 h-1 rounded-full bg-[#4D90FF]"></span>{b.status}</span>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-['Syne'] text-[18px] font-bold text-white whitespace-nowrap">₹2.28 Cr</div>
+                    <div className="font-['Syne'] text-[18px] font-bold text-white whitespace-nowrap">₹{b.quoted_amount.toLocaleString('en-IN')}</div>
                     <div className="text-[11px] text-[#8896B3] mt-px">Quoted Amount</div>
                   </div>
                   <div className="flex flex-col gap-1.5 ml-2">
-                    <button className="py-1.5 px-4 bg-[#1D9E75]/10 border border-[#1D9E75] rounded-md text-[#4DDDB0] font-sans text-[12px] font-semibold cursor-pointer hover:bg-[#1D9E75] hover:text-white transition-all">Approve</button>
-                    <button className="py-1.5 px-4 bg-[#E24B4A]/10 border border-[#E24B4A] rounded-md text-[#F08080] font-sans text-[12px] font-semibold cursor-pointer hover:bg-[#E24B4A] hover:text-white transition-all">Reject</button>
+                    <button onClick={() => {
+                      bidAPI.updateStatus(b._id, 'Accepted').then(() => {
+                        alert('Bid accepted!');
+                        setBidsForTender(bidsForTender.map(bid => bid._id === b._id ? { ...bid, status: 'Accepted' } : bid));
+                      });
+                    }} className="py-1.5 px-4 bg-[#1D9E75]/10 border border-[#1D9E75] rounded-md text-[#4DDDB0] font-sans text-[12px] font-semibold cursor-pointer hover:bg-[#1D9E75] hover:text-white transition-all">Approve</button>
+                    <button onClick={() => {
+                      bidAPI.updateStatus(b._id, 'Rejected').then(() => {
+                        alert('Bid rejected!');
+                        setBidsForTender(bidsForTender.map(bid => bid._id === b._id ? { ...bid, status: 'Rejected' } : bid));
+                      });
+                    }} className="py-1.5 px-4 bg-[#E24B4A]/10 border border-[#E24B4A] rounded-md text-[#F08080] font-sans text-[12px] font-semibold cursor-pointer hover:bg-[#E24B4A] hover:text-white transition-all">Reject</button>
                   </div>
                 </div>
               ))}
@@ -394,17 +422,19 @@ export default function AdminDashboard({ onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="border-b border-white/10 hover:bg-white/5 transition-colors">
-                      <td className="py-3 px-4 text-[13px] text-white align-middle">
-                        <div className="font-medium">Sharma Constructions Pvt Ltd</div>
-                        <div className="text-[#8896B3] text-[11px] mt-0.5">sharma@constructions.in</div>
-                      </td>
-                      <td className="py-3 px-4 text-[13px] text-[#8896B3]">09AAPCS1234F1Z5</td>
-                      <td className="py-3 px-4 text-[13px] text-white">Lucknow, UP</td>
-                      <td className="py-3 px-4">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1D9E75]/10 text-[#4DDDB0] rounded-full text-[11px] font-semibold"><span className="w-1 h-1 rounded-full bg-[#4DDDB0]"></span>Active</span>
-                      </td>
-                    </tr>
+                    {allVendors.map((v, i) => (
+                      <tr key={i} className="border-b border-white/10 hover:bg-white/5 transition-colors">
+                        <td className="py-3 px-4 text-[13px] text-white align-middle">
+                          <div className="font-medium">{v.name}</div>
+                          <div className="text-[#8896B3] text-[11px] mt-0.5">{v.email}</div>
+                        </td>
+                        <td className="py-3 px-4 text-[13px] text-[#8896B3]">{v.gst_number || 'N/A'}</td>
+                        <td className="py-3 px-4 text-[13px] text-white">{v.company_name || 'N/A'}</td>
+                        <td className="py-3 px-4">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#1D9E75]/10 text-[#4DDDB0] rounded-full text-[11px] font-semibold"><span className="w-1 h-1 rounded-full bg-[#4DDDB0]"></span>Active</span>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

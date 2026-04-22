@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Check } from 'lucide-react';
+import { authAPI } from '../services/api';
 
 export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
   const [mode, setMode] = useState(initialMode);
@@ -10,6 +11,28 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
   const [showRegPass, setShowRegPass] = useState(false);
   const [showRegPass2, setShowRegPass2] = useState(false);
   const [password, setPassword] = useState('');
+
+  const [email, setEmail] = useState('');
+  const [pass, setPass] = useState('');
+
+  // Forgot Password State
+  const [forgotStep, setForgotStep] = useState(1);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotCode, setForgotCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [declChk, setDeclChk] = useState(false);
+  const [regData, setRegData] = useState({
+    firstName:'', lastName:'', email:'', company_name:'',
+    gst_number:'', pan_number:'', password:'', phone:''
+  });
 
   // Password strength
   const getStrength = (val) => {
@@ -31,10 +54,107 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
     if (newMode === 'register') setRegStep(1);
   };
 
-  const handleRegister = () => {
-    alert('Account created! Redirecting to dashboard...');
-    if (onLogin) onLogin(regRole);
-    else onBack();
+  const handleLogin = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await authAPI.login({ email, password: pass });
+      localStorage.setItem('token', res.data.data.token);
+      localStorage.setItem('role', res.data.data.user.role);
+      onLogin(res.data.data.user.role);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Login failed');
+    }
+    setLoading(false);
+  };
+
+  const handleRegister = async () => {
+    if (!declChk) { alert('Please accept the declaration.'); return; }
+    setLoading(true);
+    try {
+      const res = await authAPI.register({
+        name: regData.firstName + ' ' + regData.lastName,
+        email: regData.email,
+        password: regData.password,
+        company_name: regData.company_name,
+        role: regRole,
+        gst_number: regData.gst_number,
+        pan_number: regData.pan_number,
+        phone: regData.phone,
+        category: 'Infrastructure',
+        state: 'Uttar Pradesh',
+      });
+      localStorage.setItem('token', res.data.data.token);
+      localStorage.setItem('role', regRole);
+      onLogin(regRole);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Registration failed');
+    }
+    setLoading(false);
+  };
+
+  const handleForgotSendCode = async () => {
+    if (!forgotEmail) { setForgotError('Please enter your email'); return; }
+    setForgotLoading(true);
+    setForgotError('');
+    try {
+      await fetch('http://localhost:5005/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+      setForgotSuccess('Reset code sent! Check your email.');
+      setForgotStep(2);
+    } catch (err) {
+      setForgotError('Failed to send code. Try again.');
+    }
+    setForgotLoading(false);
+  };
+
+  const handleVerifyCode = async () => {
+    if (forgotCode.length !== 6) { setForgotError('Please enter the 6-digit code'); return; }
+    setForgotLoading(true);
+    setForgotError('');
+    try {
+      const res = await fetch('http://localhost:5005/api/auth/verify-reset-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail, code: forgotCode })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      setForgotStep(3);
+    } catch (err) {
+      setForgotError(err.message || 'Invalid code. Try again.');
+    }
+    setForgotLoading(false);
+  };
+
+  const handleResetPassword = async () => {
+    if (!newPassword) { setForgotError('Please enter a new password'); return; }
+    if (newPassword.length < 8) { setForgotError('Password must be at least 8 characters'); return; }
+    if (newPassword !== confirmNewPassword) { setForgotError('Passwords do not match'); return; }
+    setForgotLoading(true);
+    setForgotError('');
+    try {
+      const res = await fetch('http://localhost:5005/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail, code: forgotCode, newPassword })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      alert('✅ Password updated successfully! Please login with your new password.');
+      setMode('login');
+      setForgotStep(1);
+      setForgotEmail('');
+      setForgotCode('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (err) {
+      setForgotError(err.message || 'Failed to reset password.');
+    }
+    setForgotLoading(false);
   };
 
   return (
@@ -82,35 +202,150 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
 
       {/* Right Panel */}
       <div className="flex flex-col justify-center items-center p-6 md:p-12 min-h-screen overflow-y-auto relative">
-        <button onClick={onBack} className="md:hidden absolute top-6 left-6 text-[#8896B3] hover:text-white flex items-center gap-2 text-sm font-medium">
-          <ArrowLeft size={16} /> Back
+        <button 
+          onClick={onBack} 
+          className="absolute top-6 left-6 text-[#8896B3] hover:text-white flex items-center gap-2 text-sm font-medium transition-colors z-10"
+        >
+          <ArrowLeft size={16} /> Back to Home
         </button>
         
         <div className="w-full max-w-[420px] mt-10 md:mt-0">
-          <div className="mb-7">
-            <h1 className="text-[26px] font-extrabold tracking-tight mb-1.5">
-              {mode === 'login' ? 'Welcome back' : 'Create account'}
-            </h1>
-            <p className="text-sm text-[#8896B3]">
-              {mode === 'login' ? 'Sign in to your BidSmart account' : 'Join thousands of vendors on BidSmart'}
-            </p>
-          </div>
+          {mode !== 'forgot' && (
+            <>
+              <div className="mb-7">
+                <h1 className="text-[26px] font-extrabold tracking-tight mb-1.5">
+                  {mode === 'login' ? 'Welcome back' : 'Create account'}
+                </h1>
+                <p className="text-sm text-[#8896B3]">
+                  {mode === 'login' ? 'Sign in to your BidSmart account' : 'Join thousands of vendors on BidSmart'}
+                </p>
+              </div>
 
-          {/* Toggle */}
-          <div className="flex bg-white/5 border border-white/10 rounded-xl p-1 mb-7">
-            <button 
-              className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors ${mode === 'login' ? 'bg-[#1A6BFF] text-white shadow-sm' : 'text-[#8896B3] hover:text-white'}`}
-              onClick={() => switchMode('login')}
-            >
-              Log In
-            </button>
-            <button 
-              className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors ${mode === 'register' ? 'bg-[#1A6BFF] text-white shadow-sm' : 'text-[#8896B3] hover:text-white'}`}
-              onClick={() => switchMode('register')}
-            >
-              Register
-            </button>
-          </div>
+              {/* Toggle */}
+              <div className="flex bg-white/5 border border-white/10 rounded-xl p-1 mb-7">
+                <button 
+                  className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors ${mode === 'login' ? 'bg-[#1A6BFF] text-white shadow-sm' : 'text-[#8896B3] hover:text-white'}`}
+                  onClick={() => switchMode('login')}
+                >
+                  Log In
+                </button>
+                <button 
+                  className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors ${mode === 'register' ? 'bg-[#1A6BFF] text-white shadow-sm' : 'text-[#8896B3] hover:text-white'}`}
+                  onClick={() => switchMode('register')}
+                >
+                  Register
+                </button>
+              </div>
+            </>
+          )}
+
+          {mode === 'forgot' && (
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {forgotStep === 1 && (
+                <>
+                  <div className="mb-7">
+                    <h1 className="text-[26px] font-extrabold tracking-tight mb-1.5">Reset Password</h1>
+                    <p className="text-sm text-[#8896B3]">Enter your registered email address</p>
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">Email Address</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[15px]">✉️</span>
+                      <input type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="you@company.com" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-4 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                    </div>
+                  </div>
+                  <button onClick={handleForgotSendCode} disabled={forgotLoading} className="w-full py-3.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-xl text-[15px] font-medium transition-all transform hover:-translate-y-0.5">
+                    {forgotLoading ? 'Sending...' : 'Send Reset Code'}
+                  </button>
+                  {forgotError && <p className="text-red-400 text-sm mt-2 text-center">{forgotError}</p>}
+                  {forgotSuccess && <p className="text-emerald-400 text-sm mt-2 text-center">{forgotSuccess}</p>}
+                  <button onClick={() => setMode('login')} className="w-full py-2.5 mt-2 bg-transparent text-[#8896B3] hover:text-white text-sm font-medium transition-all">
+                    ← Back to Login
+                  </button>
+                </>
+              )}
+
+              {forgotStep === 2 && (
+                <>
+                  <div className="mb-7">
+                    <h1 className="text-[26px] font-extrabold tracking-tight mb-1.5">Enter Reset Code</h1>
+                    <p className="text-sm text-[#8896B3]">We sent a 6-digit code to {forgotEmail}</p>
+                  </div>
+                  <div className="mb-6">
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={forgotCode}
+                      onChange={(e) => setForgotCode(e.target.value.replace(/[^0-9]/g, ''))}
+                      placeholder="000000"
+                      className="w-full text-center text-3xl font-bold tracking-[0.5em] bg-white/5 border border-white/10 rounded-xl py-4 px-3 text-white placeholder-white/20 focus:outline-none focus:border-[#1A6BFF] transition-all"
+                    />
+                  </div>
+                  <button onClick={handleVerifyCode} disabled={forgotLoading} className="w-full py-3.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-xl text-[15px] font-medium transition-all transform hover:-translate-y-0.5">
+                    {forgotLoading ? 'Verifying...' : 'Verify Code'}
+                  </button>
+                  {forgotError && <p className="text-red-400 text-sm mt-2 text-center">{forgotError}</p>}
+                  {forgotSuccess && <p className="text-emerald-400 text-sm mt-2 text-center">{forgotSuccess}</p>}
+                  
+                  <div className="flex justify-between mt-4 text-sm font-medium">
+                    <button onClick={() => setForgotStep(1)} className="text-[#8896B3] hover:text-white transition-colors">← Back</button>
+                    <button onClick={handleForgotSendCode} className="text-[#4D90FF] hover:underline">Didn't receive code? Resend</button>
+                  </div>
+                </>
+              )}
+
+              {forgotStep === 3 && (
+                <>
+                  <div className="mb-7">
+                    <h1 className="text-[26px] font-extrabold tracking-tight mb-1.5">Set New Password</h1>
+                    <p className="text-sm text-[#8896B3]">Choose a strong password for your account</p>
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">New Password</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[15px]">🔑</span>
+                      <input 
+                        type={showNewPass ? 'text' : 'password'} 
+                        placeholder="Min. 8 characters" 
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-16 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" 
+                      />
+                      <button type="button" onClick={() => setShowNewPass(!showNewPass)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#8896B3] hover:text-white transition-colors">
+                        {showNewPass ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    <div className="flex gap-1 mt-2">
+                      {[1, 2, 3, 4].map(i => (
+                        <div key={i} className={`flex-1 h-1 rounded-full transition-colors ${i <= getStrength(newPassword) ? bgCols[getStrength(newPassword)] : 'bg-white/10'}`}></div>
+                      ))}
+                    </div>
+                    {newPassword && <div className={`text-[11px] mt-1 font-medium ${textCols[getStrength(newPassword)]}`}>{labels[getStrength(newPassword)]}</div>}
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">Confirm Password</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[15px]">🔑</span>
+                      <input 
+                        type={showConfirmPass ? 'text' : 'password'} 
+                        placeholder="Re-enter password" 
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-16 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" 
+                      />
+                      <button type="button" onClick={() => setShowConfirmPass(!showConfirmPass)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#8896B3] hover:text-white transition-colors">
+                        {showConfirmPass ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+                  <button onClick={handleResetPassword} disabled={forgotLoading} className="w-full py-3.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-xl text-[15px] font-medium transition-all transform hover:-translate-y-0.5">
+                    {forgotLoading ? 'Updating...' : 'Update Password'}
+                  </button>
+                  {forgotError && <p className="text-red-400 text-sm mt-2 text-center">{forgotError}</p>}
+                </>
+              )}
+            </div>
+          )}
 
           {mode === 'login' && (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -135,7 +370,7 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
                 <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">Email Address</label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[15px]">✉️</span>
-                  <input type="email" placeholder="you@company.com" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-4 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                  <input type="email" value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="you@company.com" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-4 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                 </div>
               </div>
 
@@ -143,7 +378,7 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
                 <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">Password</label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[15px]">🔑</span>
-                  <input type={showLoginPass ? 'text' : 'password'} placeholder="Enter your password" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-16 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                  <input type={showLoginPass ? 'text' : 'password'} value={pass} onChange={(e)=>setPass(e.target.value)} placeholder="Enter your password" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-16 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                   <button type="button" onClick={() => setShowLoginPass(!showLoginPass)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#8896B3] hover:text-white transition-colors">
                     {showLoginPass ? 'Hide' : 'Show'}
                   </button>
@@ -151,12 +386,13 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
               </div>
 
               <div className="flex justify-end -mt-1 mb-4">
-                <button className="text-xs text-[#4D90FF] hover:underline font-medium">Forgot password?</button>
+                <button onClick={() => { setMode('forgot'); setForgotStep(1); setForgotError(''); setForgotSuccess(''); }} className="text-xs text-[#4D90FF] hover:underline font-medium">Forgot password?</button>
               </div>
 
-              <button onClick={() => {alert('Logged in!'); if (onLogin) onLogin(loginRole); else onBack();}} className="w-full py-3.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-xl text-[15px] font-medium transition-all transform hover:-translate-y-0.5">
-                Sign In →
+              <button onClick={handleLogin} disabled={loading} className="w-full py-3.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-xl text-[15px] font-medium transition-all transform hover:-translate-y-0.5">
+                {loading ? 'Signing in...' : 'Sign In →'}
               </button>
+              {error && <p className="text-red-400 text-sm mt-2 text-center">{error}</p>}
 
               <div className="flex items-center gap-3 my-5 text-xs text-[#8896B3]">
                 <div className="flex-1 h-px bg-white/10"></div>
@@ -164,7 +400,7 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
                 <div className="flex-1 h-px bg-white/10"></div>
               </div>
 
-              <button className="w-full py-3 bg-white/5 border border-white/10 hover:border-white/20 text-white rounded-xl text-sm flex items-center justify-center gap-2 transition-all">
+              <button onClick={() => alert('Google Sign-In coming soon! Please use your email and password to login.')} className="w-full py-3 bg-white/5 border border-white/10 hover:border-white/20 text-white rounded-xl text-sm flex items-center justify-center gap-2 transition-all">
                 <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
                 Continue with Google
               </button>
@@ -235,33 +471,33 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     <div>
                       <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">First Name</label>
-                      <input type="text" placeholder="Rishabh" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                      <input type="text" value={regData.firstName} onChange={(e) => setRegData({...regData, firstName: e.target.value})} placeholder="Rishabh" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">Last Name</label>
-                      <input type="text" placeholder="Singh" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                      <input type="text" value={regData.lastName} onChange={(e) => setRegData({...regData, lastName: e.target.value})} placeholder="Singh" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                     </div>
                   </div>
                   <div className="mb-4">
                     <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">Email Address</label>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[15px]">✉️</span>
-                      <input type="email" placeholder="you@company.com" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-4 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                      <input type="email" value={regData.email} onChange={(e) => setRegData({...regData, email: e.target.value})} placeholder="you@company.com" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-4 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                     </div>
                   </div>
                   <div className="mb-4">
                     <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">Company Name</label>
-                    <input type="text" placeholder="ABC Infrastructure Pvt Ltd" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                    <input type="text" value={regData.company_name} onChange={(e) => setRegData({...regData, company_name: e.target.value})} placeholder="ABC Infrastructure Pvt Ltd" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                   </div>
                   {regRole === 'vendor' && (
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div>
                         <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">GST Number</label>
-                        <input type="text" placeholder="27AAPFU..." className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                        <input type="text" value={regData.gst_number} onChange={(e) => setRegData({...regData, gst_number: e.target.value})} placeholder="27AAPFU..." className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-[#8896B3] mb-1.5 uppercase tracking-wide">PAN Number</label>
-                        <input type="text" placeholder="AAPFU1234C" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                        <input type="text" value={regData.pan_number} onChange={(e) => setRegData({...regData, pan_number: e.target.value})} placeholder="AAPFU1234C" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                       </div>
                     </div>
                   )}
@@ -284,8 +520,8 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
                       <input 
                         type={showRegPass ? 'text' : 'password'} 
                         placeholder="Min. 8 characters" 
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        value={regData.password}
+                        onChange={(e) => {setPassword(e.target.value); setRegData({...regData, password: e.target.value})}}
                         className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pr-16 pl-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" 
                       />
                       <button type="button" onClick={() => setShowRegPass(!showRegPass)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#8896B3] hover:text-white transition-colors">
@@ -315,11 +551,11 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
                       <div className="bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white flex items-center shrink-0">
                         🇮🇳 +91
                       </div>
-                      <input type="tel" placeholder="98765 43210" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
+                      <input type="tel" value={regData.phone} onChange={(e) => setRegData({...regData, phone: e.target.value})} placeholder="98765 43210" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-3.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#1A6BFF] focus:bg-[#1A6BFF]/5 transition-all" />
                     </div>
                   </div>
                   <div className="flex items-start gap-2 mb-4 text-xs text-[#8896B3] leading-relaxed">
-                    <input type="checkbox" className="mt-0.5 shrink-0 accent-[#1A6BFF] w-3.5 h-3.5 rounded border-white/20 bg-white/5" id="termsCheck" />
+                    <input type="checkbox" checked={declChk} onChange={(e) => setDeclChk(e.target.checked)} className="mt-0.5 shrink-0 accent-[#1A6BFF] w-3.5 h-3.5 rounded border-white/20 bg-white/5" id="termsCheck" />
                     <label htmlFor="termsCheck">
                       I agree to BidSmart's <a href="#" className="text-[#4D90FF] hover:underline">Terms of Service</a> and <a href="#" className="text-[#4D90FF] hover:underline">Privacy Policy</a>
                     </label>
@@ -335,13 +571,15 @@ export default function AuthPage({ initialMode = 'login', onBack, onLogin }) {
             </div>
           )}
 
-          <div className="text-center mt-6 text-[13px] text-[#8896B3]">
-            {mode === 'login' ? (
-              <>Don't have an account? <button onClick={() => switchMode('register')} className="text-[#4D90FF] font-medium hover:underline">Register free →</button></>
-            ) : (
-              <>Already have an account? <button onClick={() => switchMode('login')} className="text-[#4D90FF] font-medium hover:underline">Sign in →</button></>
-            )}
-          </div>
+          {mode !== 'forgot' && (
+            <div className="text-center mt-6 text-[13px] text-[#8896B3]">
+              {mode === 'login' ? (
+                <>Don't have an account? <button onClick={() => switchMode('register')} className="text-[#4D90FF] font-medium hover:underline">Register free →</button></>
+              ) : (
+                <>Already have an account? <button onClick={() => switchMode('login')} className="text-[#4D90FF] font-medium hover:underline">Sign in →</button></>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

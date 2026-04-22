@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { recommendAPI, bidAPI, tenderAPI, notificationAPI } from '../services/api';
 
 const Toggle = ({ defaultOn = false, onChange }) => {
   const [isOn, setIsOn] = useState(defaultOn);
@@ -17,6 +18,35 @@ export default function VendorDashboard({ onLogout }) {
   const [submitStep, setSubmitStep] = useState(1);
   const [bidAmt, setBidAmt] = useState('');
   const [declChk, setDeclChk] = useState(false);
+  const [selectedTenderId, setSelectedTenderId] = useState(null);
+
+  const [recommendations, setRecommendations] = useState([]);
+  const [myBids, setMyBids] = useState([]);
+  const [tenders, setTenders] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [stats, setStats] = useState({ total: 0, won: 0, review: 0, value: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [recRes, bidsRes, tendersRes, notifRes] = await Promise.all([
+          recommendAPI.get(),
+          bidAPI.getMyBids(),
+          tenderAPI.getAll(),
+          notificationAPI.getAll(),
+        ]);
+        setRecommendations(recRes.data.data.recommendations || []);
+        setMyBids(bidsRes.data.data || []);
+        setTenders(tendersRes.data.data || []);
+        setNotifications(notifRes.data.data || []);
+      } catch (err) {
+        console.error('Data load error:', err);
+      }
+      setLoading(false);
+    };
+    loadData();
+  }, []);
 
   const pages = {
     dashboard: { title: 'Dashboard', crumb: 'Home' },
@@ -53,16 +83,21 @@ export default function VendorDashboard({ onLogout }) {
   const emd = Math.round(amtNum * 0.01);
   const totalPayable = amtNum ? emd + 2500 : 0;
 
-  const handleBidSubmit = () => {
-    if(!declChk) {
-      alert('Please accept the declaration before submitting.');
-      return;
+  const handleBidSubmit = async () => {
+    if (!declChk) { alert('Please accept the declaration.'); return; }
+    try {
+      await bidAPI.submit({
+        tender_id: selectedTenderId || tenders[0]?._id,
+        quoted_amount: amtNum,
+      });
+      alert('✅ Bid submitted! Check My Bids for status.');
+      setActivePage('mybids');
+      setSubmitStep(1);
+      setBidAmt('');
+      setDeclChk(false);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Bid submission failed');
     }
-    alert('✅ Bid submitted successfully!\n\nYou will receive a confirmation email. Track status in "My Bids".');
-    setActivePage('mybids');
-    setSubmitStep(1);
-    setBidAmt('');
-    setDeclChk(false);
   };
 
   const renderDashboard = () => (
@@ -113,62 +148,38 @@ export default function VendorDashboard({ onLogout }) {
             <button onClick={() => setActivePage('browse')} className="px-3 py-1.5 border border-[rgba(255,255,255,0.07)] hover:bg-[rgba(26,107,255,0.12)] hover:border-[#1A6BFF] hover:text-[#4D90FF] rounded-md text-[12px] font-medium text-[#8896B3] transition-all">View all →</button>
           </div>
           <div className="flex flex-col gap-3">
-            {/* Rec Card 1 */}
-            <div onClick={() => setActivePage('submit')} className="bg-[#151E35] border border-[rgba(255,255,255,0.07)] hover:border-[rgba(26,107,255,0.35)] rounded-xl p-4.5 cursor-pointer transition-all transform hover:-translate-y-0.5">
-              <div className="flex items-start justify-between gap-2.5 mb-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-[#4D90FF] bg-[rgba(26,107,255,0.12)] px-2.5 py-1 rounded-full">Infrastructure</span>
-                <span className="flex items-center gap-1 text-[12px] font-bold text-[#4DDDB0] bg-[rgba(29,158,117,0.12)] px-2.5 py-1 rounded-full whitespace-nowrap">★ 96% match</span>
+            {recommendations.map((rec, i) => (
+              <div key={i} className="bg-[#151E35] border border-[rgba(255,255,255,0.07)] hover:border-[rgba(26,107,255,0.35)] rounded-xl p-4.5 cursor-pointer transition-all transform hover:-translate-y-0.5">
+                <div className="flex items-start justify-between gap-2.5 mb-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-[#4D90FF] bg-[rgba(26,107,255,0.12)] px-2.5 py-1 rounded-full">
+                    {rec.tender.category}
+                  </span>
+                  <span className="flex items-center gap-1 text-[12px] font-bold text-[#4DDDB0] bg-[rgba(29,158,117,0.12)] px-2.5 py-1 rounded-full whitespace-nowrap">
+                    ★ {rec.score}% match
+                  </span>
+                </div>
+                <div className="font-syne text-[14px] font-bold mb-1.5 leading-snug text-white">
+                  {rec.tender.title}
+                </div>
+                <div className="text-[12px] text-[#8896B3] mb-3">{rec.tender.state}</div>
+                <div className="flex gap-3.5 flex-wrap">
+                  <div className="text-[12px] text-[#8896B3]">
+                    💰 <strong className="text-white">₹{(rec.tender.estimated_cost/100000).toFixed(1)}L</strong>
+                  </div>
+                  <div className="text-[12px] text-[#8896B3]">
+                    🗓️ <strong className="text-white">
+                      {new Date(rec.tender.end_date).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}
+                    </strong>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-[rgba(255,255,255,0.07)]">
+                  <div className="text-[11px] text-[#8896B3]">{rec.reasons[0]}</div>
+                  <button onClick={(e) => {e.stopPropagation(); setSelectedTenderId(rec.tender._id); setActivePage('submit');}} className="px-4 py-1.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-md text-[12px] font-semibold transition-colors">
+                    Bid Now →
+                  </button>
+                </div>
               </div>
-              <div className="font-syne text-[14px] font-bold mb-1.5 leading-snug text-white">Road Construction — NH-24 Gomti Nagar Phase 2</div>
-              <div className="text-[12px] text-[#8896B3] mb-3">PWD · Lucknow, Uttar Pradesh</div>
-              <div className="flex gap-3.5 flex-wrap">
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">💰 <strong className="text-white font-medium">₹2.5 Cr</strong></div>
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">📥 <strong className="text-white font-medium">14</strong> bids</div>
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">🗓️ <strong className="text-white font-medium">30 Apr</strong></div>
-              </div>
-              <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-[rgba(255,255,255,0.07)]">
-                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[rgba(226,75,74,0.12)] text-[#F08080] border border-[rgba(226,75,74,0.3)]">⚠ 8 days left</span>
-                <button onClick={(e) => {e.stopPropagation(); setActivePage('submit');}} className="px-4 py-1.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-md text-[12px] font-semibold transition-colors">Bid Now →</button>
-              </div>
-            </div>
-
-            {/* Rec Card 2 */}
-            <div className="bg-[#151E35] border border-[rgba(255,255,255,0.07)] hover:border-[rgba(26,107,255,0.35)] rounded-xl p-4.5 cursor-pointer transition-all transform hover:-translate-y-0.5">
-              <div className="flex items-start justify-between gap-2.5 mb-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-[#4D90FF] bg-[rgba(26,107,255,0.12)] px-2.5 py-1 rounded-full">Civil Works</span>
-                <span className="flex items-center gap-1 text-[12px] font-bold text-[#4DDDB0] bg-[rgba(29,158,117,0.12)] px-2.5 py-1 rounded-full whitespace-nowrap">★ 89% match</span>
-              </div>
-              <div className="font-syne text-[14px] font-bold mb-1.5 leading-snug text-white">Water Pipeline — Lucknow East Zone</div>
-              <div className="text-[12px] text-[#8896B3] mb-3">Jal Nigam · Lucknow, UP</div>
-              <div className="flex gap-3.5 flex-wrap">
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">💰 <strong className="text-white font-medium">₹1.8 Cr</strong></div>
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">📥 <strong className="text-white font-medium">9</strong> bids</div>
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">🗓️ <strong className="text-white font-medium">5 May</strong></div>
-              </div>
-              <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-[rgba(255,255,255,0.07)]">
-                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[rgba(245,166,35,0.12)] text-[#FFD07A] border border-[rgba(245,166,35,0.3)]">13 days left</span>
-                <button className="px-4 py-1.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-md text-[12px] font-semibold transition-colors">Bid Now →</button>
-              </div>
-            </div>
-
-            {/* Rec Card 3 */}
-            <div className="bg-[#151E35] border border-[rgba(255,255,255,0.07)] hover:border-[rgba(26,107,255,0.35)] rounded-xl p-4.5 cursor-pointer transition-all transform hover:-translate-y-0.5">
-              <div className="flex items-start justify-between gap-2.5 mb-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-[#4D90FF] bg-[rgba(26,107,255,0.12)] px-2.5 py-1 rounded-full">Maintenance</span>
-                <span className="flex items-center gap-1 text-[12px] font-bold text-[#4DDDB0] bg-[rgba(29,158,117,0.12)] px-2.5 py-1 rounded-full whitespace-nowrap">★ 81% match</span>
-              </div>
-              <div className="font-syne text-[14px] font-bold mb-1.5 leading-snug text-white">Street Light Maintenance — Kanpur City Zone A</div>
-              <div className="text-[12px] text-[#8896B3] mb-3">Municipal Corp · Kanpur, UP</div>
-              <div className="flex gap-3.5 flex-wrap">
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">💰 <strong className="text-white font-medium">₹28 L</strong></div>
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">📥 <strong className="text-white font-medium">3</strong> bids</div>
-                <div className="text-[12px] text-[#8896B3] flex items-center gap-1">🗓️ <strong className="text-white font-medium">15 May</strong></div>
-              </div>
-              <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-[rgba(255,255,255,0.07)]">
-                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[rgba(29,158,117,0.12)] text-[#4DDDB0] border border-[rgba(29,158,117,0.3)]">23 days left</span>
-                <button className="px-4 py-1.5 bg-[#1A6BFF] hover:bg-[#4D90FF] text-white rounded-md text-[12px] font-semibold transition-colors">Bid Now →</button>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -520,75 +531,41 @@ export default function VendorDashboard({ onLogout }) {
         ))}
       </div>
 
-      {[
-        { t: 'Road Construction — NH-24 Gomti Nagar Phase 2', r: 'UP/PWD/2026/0412 · PWD · Lucknow', v: '₹2.28 Cr', sub: '22 Apr 2026', dead: '30 Apr 2026', deadCol: 'text-[#F08080]', badge: 'Under Review', bg: 'bg-[rgba(26,107,255,0.12)] text-[#4D90FF]', step: 2, match: '96% match', docs: '3' },
-        { t: 'Water Pipeline — Lucknow East Zone', r: 'UP/JN/2026/0389 · Jal Nigam · Lucknow', v: '₹1.72 Cr', sub: '18 Apr 2026', dead: '5 May 2026', deadCol: 'text-white', badge: 'Under Review', bg: 'bg-[rgba(26,107,255,0.12)] text-[#4D90FF]', step: 2, match: '89% match', docs: '4' },
-        { t: 'Solar Panel Installation — Govt Schools Agra', r: 'UP/EDU/2026/0278 · Education Dept · Agra', v: '₹86 L', sub: '10 Apr 2026', dead: '20 Apr 2026 (Awarded)', deadCol: 'text-white', badge: 'Won 🏆', bg: 'bg-[rgba(29,158,117,0.12)] text-[#4DDDB0]', step: 4, match: '91% match', docs: '5', awarded: true },
-        { t: 'IT Equipment Supply — District Collectorate Varanasi', r: 'UP/IT/2026/0301 · IT Dept · Varanasi', v: '₹41 L', sub: '5 Apr 2026', dead: '15 Apr 2026 (Closed)', deadCol: 'text-white', badge: 'Not Selected', bg: 'bg-[rgba(226,75,74,0.12)] text-[#F08080]', step: 3, match: '62% match', docs: '3', lost: true }
-      ].map((b,i) => (
-        <div key={i} className={`bg-[#0F1729] border border-[rgba(255,255,255,0.07)] rounded-2xl p-5 mb-3 transition-colors hover:border-[rgba(255,255,255,0.13)] ${b.lost ? 'opacity-70' : ''}`}>
-          <div className="flex items-start justify-between gap-3 mb-3.5">
-            <div>
-              <div className="font-syne text-[15px] font-bold mb-1 leading-snug text-white">{b.t}</div>
-              <div className="text-[12px] text-[#8896B3]">{b.r}</div>
-            </div>
-            <div className="text-right">
-              <div className="font-syne text-[20px] font-extrabold text-white leading-none mb-1">{b.v}</div>
-              <div className="text-[11px] text-[#8896B3]">Your Quote</div>
-            </div>
-          </div>
-          <div className="flex gap-4 flex-wrap mb-3.5 items-center">
-            <div className="text-[12px] text-[#8896B3]">📅 Submitted: <strong className="text-white font-medium">{b.sub}</strong></div>
-            <div className="text-[12px] text-[#8896B3]">🕐 {b.awarded ? 'Awarded:' : b.lost ? 'Closed:' : 'Deadline:'} <strong className={`${b.deadCol} font-medium`}>{b.dead}</strong></div>
-            <div className="text-[12px] text-[#8896B3]">📎 <strong className="text-white font-medium">{b.docs}</strong> docs</div>
-            <div className="text-[12px] text-[#8896B3]">★ <strong className={`${b.awarded||b.match.includes('9')?'text-[#4DDDB0]':'text-[#FFD07A]'} font-medium`}>{b.match}</strong></div>
-            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ${b.bg}`}>
-              <div className="w-1 h-1 rounded-full bg-current"></div>{b.badge}
-            </span>
-          </div>
-          
-          <div className="flex items-center pt-3.5 border-t border-[rgba(255,255,255,0.07)]">
-            {[ 'Submitted', 'Received', 'Under Review', 'Decision', 'Award' ].map((step, idx) => {
-              let status = 'idle';
-              if (b.awarded && idx === 4) status = 'awarded';
-              else if (b.lost && idx === 3) status = 'lost';
-              else if (b.lost && idx === 4) status = 'idle';
-              else if (idx < b.step) status = 'done';
-              else if (idx === b.step) status = 'cur';
-              
-              const isLast = idx === 4;
-              
-              return (
-                <React.Fragment key={idx}>
-                  <div className="flex flex-col items-center gap-1 flex-1">
-                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                      status === 'done' ? 'bg-[#4DDDB0]' : 
-                      status === 'cur' ? 'bg-[#1A6BFF] ring-[3px] ring-[rgba(26,107,255,0.2)]' : 
-                      status === 'awarded' ? 'bg-[#FFD07A]' :
-                      status === 'lost' ? 'bg-[#F08080]' :
-                      'bg-white/10'
-                    }`}></div>
-                    <div className={`text-[10px] text-center whitespace-nowrap ${
-                      status === 'done' ? 'text-[#4DDDB0]' : 
-                      status === 'cur' ? 'text-[#4D90FF]' : 
-                      status === 'awarded' ? 'text-[#FFD07A]' :
-                      status === 'lost' ? 'text-[#F08080]' :
-                      'text-[#8896B3]'
-                    }`}>{status === 'lost' && idx === 3 ? 'Not Selected' : step}</div>
-                  </div>
-                  {!isLast && (
-                    <div className={`flex-1 h-[1px] mb-3.5 ${
-                      (idx < b.step && !b.lost) || (b.lost && idx < 2) || (b.awarded && idx < 4) ? 'bg-[#4DDDB0]' : 
-                      (b.lost && idx === 2) ? 'bg-[#F08080]' :
-                      'bg-[rgba(255,255,255,0.07)]'
-                    }`}></div>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+      <div className="overflow-x-auto rounded-xl border border-white/10 mt-5">
+        <table className="w-full border-collapse bg-[#0F1729] text-left">
+          <thead>
+            <tr className="border-b border-[rgba(255,255,255,0.07)]">
+              <th className="py-3 px-4 text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide">Tender</th>
+              <th className="py-3 px-4 text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide">Quoted Amount</th>
+              <th className="py-3 px-4 text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide">Date</th>
+              <th className="py-3 px-4 text-[11px] font-semibold text-[#8896B3] uppercase tracking-wide">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {myBids.map((bid, i) => (
+              <tr key={i} className="border-b border-[rgba(255,255,255,0.07)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
+                <td className="py-3 px-4 text-[13px] text-white">
+                  {bid.tender_id?.title || 'N/A'}
+                </td>
+                <td className="py-3 px-4 text-[13px] text-white font-semibold">
+                  ₹{bid.quoted_amount?.toLocaleString('en-IN')}
+                </td>
+                <td className="py-3 px-4 text-[13px] text-[#8896B3]">
+                  {new Date(bid.submitted_at).toLocaleDateString('en-IN')}
+                </td>
+                <td className="py-3 px-4">
+                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                    bid.status === 'Accepted' ? 'bg-[#1D9E75]/10 text-[#4DDDB0]' :
+                    bid.status === 'Rejected' ? 'bg-[#E24B4A]/10 text-[#F08080]' :
+                    bid.status === 'Withdrawn' ? 'bg-white/10 text-[#8896B3]' :
+                    'bg-[#F5A623]/10 text-[#FFD07A]'
+                  }`}>{bid.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 
@@ -727,7 +704,7 @@ export default function VendorDashboard({ onLogout }) {
           </div>
           <div className="flex items-center gap-3">
             <button className="w-9 h-9 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.07)] flex items-center justify-center text-[16px] hover:bg-white/5 transition-colors relative">
-              🔔<span className="absolute top-1.5 right-1.5 w-[7px] h-[7px] bg-[#F5A623] rounded-full border-[1.5px] border-[#0A0F1E]"></span>
+              🔔{notifications.filter(n => !n.is_read).length > 0 && <span className="absolute top-1.5 right-1.5 w-[14px] h-[14px] bg-[#F5A623] rounded-full border-[1.5px] border-[#0A0F1E] flex items-center justify-center text-[8px] text-white font-bold">{notifications.filter(n => !n.is_read).length}</span>}
             </button>
             <button className="w-9 h-9 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.07)] flex items-center justify-center text-[16px] hover:bg-white/5 transition-colors">
               ❓
